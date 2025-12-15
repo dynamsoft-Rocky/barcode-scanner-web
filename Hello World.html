@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dynamic Web TWAIN - OCR Demo</title>
+
+  <!-- Step 0: Include Dynamic Web TWAIN and OCR Add-on -->
+  <script src="Resources/dynamsoft.webtwain.initiate.js"></script>
+  <script src="Resources/dynamsoft.webtwain.config.js"></script>
+  <script src="Resources/dynamsoft.webtwain.addon.ocrkit.js"></script>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0" />
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f7fa;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      text-align: center;
+    }
+
+    h2 {
+      margin-bottom: 6px;
+      color: #444;
+      font-size: 18px;
+    }
+
+    .section {
+      background: #ffffff;
+      padding: 16px;
+      margin-bottom: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 800px;
+    }
+
+    .section input[type="button"], .section select {
+      margin-right: 10px;
+      margin-top: 6px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 14px;
+    }
+
+    input[type="button"]{
+      background-color: #fe8e14;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    input[type="button"]:hover{
+      background-color: #fe8e14;
+    }
+
+    .container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+      margin-top: 20px;
+      width: 100%;
+    }
+
+    #dwtcontrolContainer {
+      width: 360px;
+      height: 460px;
+      border: 1px solid #d0d0d0;
+      border-radius: 10px;
+      background: white;
+      box-shadow: inset 0 0 4px rgba(0,0,0,0.1);
+    }
+
+    #result {
+      width: 360px;
+      height: 460px;
+      background: #ffffff;
+      border-radius: 10px;
+      border: 1px solid #d0d0d0;
+      padding: 12px;
+      overflow-y: auto;
+      font-size: 14px;
+      white-space: pre-wrap;
+      box-shadow: inset 0 0 4px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Step 1: Input Block -->
+  <div class="section">
+    <h2>Input</h2>
+    <input type="button" value="Scan" onclick="AcquireImage();" />
+    <input type="button" value="Load Image" onclick="LoadImage();" />
+  </div>
+
+  <!-- Step 2: Processing Block -->
+  <div class="section">
+    <h2>Processing</h2>
+    <input type="button" value="Correct Orientation" onclick="CorrectOrientation();" />
+    <input type="button" value="Recognize Text" onclick="Recognize();" />
+
+    <br /><br />
+    <label>Language:
+      <select id="language">
+        <option value="en">English</option>
+        <option value="fr">French</option>
+        <option value="es">Spanish</option>
+        <option value="de">German</option>
+        <option value="it">Italian</option>
+        <option value="pt">Portuguese</option>
+      </select>
+    </label>
+
+    <label style="margin-left: 10px;">Target:
+      <select id="processingTarget">
+        <option value="current">Current Image</option>
+        <option value="all">All Images</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- Step 3: Output Block -->
+  <div class="section">
+    <h2>Output</h2>
+    <input type="button" value="Save as file" onclick="SaveAsFile();" \/>
+
+    <label style="margin-left: 10px;">Option:
+      <select id="outputFormat">
+        <option value="text" selected>Text (.txt)</option>
+        <option value="extralayer">With Extra Text Layer (PDF)</option>
+        <option value="plaintext">Plain Text (PDF)</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- Step 4: Display Block -->
+  <div class="container">
+    <div id="dwtcontrolContainer"></div>
+    <pre id="result"></pre>
+  </div>
+
+  <!-- JS Code -->
+  <script>
+    //step 5 Initialize Web TWAIN
+    var DWTObject;
+    //step 8.0 Store OCR Results
+    var storedOCRResults = {};
+
+    Dynamsoft.DWT.RegisterEvent("OnWebTwainReady", function () {
+      DWTObject = Dynamsoft.DWT.GetWebTwain("dwtcontrolContainer");
+      DWTObject.Viewer.width = "100%";
+      DWTObject.Viewer.height = "100%";
+
+      //step 6.1 Check if OCR Add-on is installed
+      CheckIsOCRInstalled();
+      //step 8.1 Update OCR result display when image changes
+      DWTObject.RegisterEvent('OnBufferChanged', function (info) {
+        if (DWTObject.CurrentImageIndexInBuffer != -1) {
+          let id = DWTObject.IndexToImageID(DWTObject.CurrentImageIndexInBuffer);
+          document.getElementById("result").innerText = storedOCRResults[id] ? PrettyPrintResult(storedOCRResults[id], true) : "";
+        }
+      });
+    });
+
+    //step 5.1 Acquire image from scanner
+    function AcquireImage(){
+      if (!DWTObject) return;
+      DWTObject.SelectSourceAsync()
+        .then(() => DWTObject.AcquireImageAsync({IfCloseSourceAfterAcquire:true}))
+        .catch(exp => alert(exp.message));
+    }
+
+    //step 5.2 Load image from local file system
+    function LoadImage(){
+      DWTObject.IfShowFileDialog = true;
+      DWTObject.LoadImageEx("", Dynamsoft.DWT.EnumDWT_ImageType.IT_ALL, ()=>{}, ()=>{});
+    }
+
+    //step 6.2 Check if OCR Add-on is installed
+    async function CheckIsOCRInstalled(){
+      try {
+        let info = await DWTObject.Addon.OCRKit.GetInstalledOCRInfo();
+        if (!info.version) alert("OCR Add-on is not installed.");
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    //step 7.1 Correct orientation for all images
+    async function CorrectOrientation(){
+      if (!DWTObject) return;
+      let target = document.getElementById("processingTarget").value;
+      let count = DWTObject.HowManyImagesInBuffer;
+
+      if (target === "all"){
+        for (let i = 0; i < count; i++){ DWTObject.SelectImages([i]); await CorrectOrientationForOne(i); }
+      } else if (DWTObject.CurrentImageIndexInBuffer !== -1){
+        await CorrectOrientationForOne(DWTObject.CurrentImageIndexInBuffer);
+      }
+    }
+
+    //step 7.2 Correct orientation for one image
+    async function CorrectOrientationForOne(index){
+      let r = await DWTObject.Addon.OCRKit.DetectPageOrientation(index);
+      if (r.angle != 0){ DWTObject.Rotate(index, -r.angle, true); }
+    }
+
+    //step 8.2 Recognize text for all images
+    async function Recognize(){
+      if (!DWTObject) return;
+      let target = document.getElementById("processingTarget").value;
+      let count = DWTObject.HowManyImagesInBuffer;
+
+      if (target === "all"){
+        for (let i = 0; i < count; i++){ DWTObject.SelectImages([i]); await RecognizeOnePage(i); }
+      } else if (DWTObject.CurrentImageIndexInBuffer !== -1){
+        await RecognizeOnePage(DWTObject.CurrentImageIndexInBuffer);
+      }
+    }
+
+    //step 8.3 Recognize text for one image
+    async function RecognizeOnePage(index){
+      let lang = document.getElementById("language").value;
+      let result = await DWTObject.Addon.OCRKit.Recognize(index,{settings:{language:lang}});
+      storedOCRResults[result.imageID] = result;
+      PrettyPrintResult(result);
+    }
+
+    //step 8.4 Pretty print OCR result
+    function PrettyPrintResult(result, returnString){
+      let text = "";
+      result.blocks.forEach(b => {
+        b.lines.forEach(l => {
+          l.words.forEach(w => text += w.value + " ");
+          text += "\n";
+        });
+        text += "\n";
+      });
+      if (returnString) return text;
+      document.getElementById("result").innerText = text;
+    }    
+
+    //step 9.1 Output OCR results as file
+    async function SaveAsFile(){
+      try {
+        let type = document.getElementById('outputFormat').value;
+        let format, filename;
+
+        if(type === "extralayer"){
+          format = Dynamsoft.DWT.EnumDWT_OCRKitOutputFormat.PDF_WITH_EXTRA_TEXTLAYER;
+          filename = "OCRResults.pdf";
+        } else if(type === "plaintext"){
+          format = Dynamsoft.DWT.EnumDWT_OCRKitOutputFormat.PDF_PLAIN_TEXT;
+          filename = "OCRResults.pdf";
+        } else if(type === "text"){
+          format = Dynamsoft.DWT.EnumDWT_OCRKitOutputFormat.TEXT;
+          filename = "OCRResults.txt";
+        } else {
+          throw new Error('Unknown output format');
+        }
+
+        await DWTObject.Addon.OCRKit.SaveToPath(
+          DWTObject.SelectAllImages(),
+          format,
+          filename
+        );
+      } catch (error){ alert(error.message); }
+    }
+  </script>
+</body>
+</html>
